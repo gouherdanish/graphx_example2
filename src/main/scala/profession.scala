@@ -10,7 +10,7 @@ object profession {
 
     val spark = SparkSession.builder()
       .master("local[*]")
-      .appName("Social Network Analysis")
+      .appName("Profession")
       .enableHiveSupport()
       .getOrCreate()
 
@@ -33,7 +33,7 @@ object profession {
     val defaultUser = ("John Doe", "Missing")
 
     // Build the initial Graph
-    val graph = Graph(users, relationships, defaultUser)
+    val graph: Graph[(String, String), String] = Graph(users, relationships, defaultUser)
 
     // Using vertices method
     // Count all users which are postdocs
@@ -50,10 +50,55 @@ object profession {
     println(srcId_greater_than_dstId_count_1)
 
     // Using triplets method
+    println('\n'+"Graph View - Initial")
     val facts: RDD[String] =
       graph.triplets.map(triplet =>
         triplet.srcAttr._1 + " is the " + triplet.attr + " of " + triplet.dstAttr._1)
     facts.collect.foreach(println(_))
+
+    // Out Degrees
+    println('\n'+"Outdegrees")
+    graph.outDegrees.collect.foreach(println)
+
+    // Using outerJoinVertices
+    // Given a graph where the vertex property is the out degree
+    println('\n'+"Graph View - After outerJoinVertices ")
+    val inputGraph: Graph[PartitionID, String] = graph.outerJoinVertices(graph.outDegrees)((vid, _, degOpt) => degOpt.getOrElse(0))
+    inputGraph.triplets.collect.foreach(println)
+
+    // Same as above but with Style
+    println('\n'+"Graph View - After outerJoinVertices - Another Way")
+    val degreeGraph: Graph[PartitionID, String] = graph.outerJoinVertices(graph.outDegrees) { (id, oldAttr, outDegOpt) =>
+      outDegOpt match {
+        case Some(outDeg) => outDeg
+        case None => 0 // No outDegree means zero outDegree
+      }
+    }
+    degreeGraph.triplets.collect.foreach(println)
+
+    // Using mapTriplets
+    // Construct a graph where each edge contains the weight
+    // and each vertex is the initial PageRank
+    println('\n'+"Graph View - Modifying Edge Attribute as 1.0 / src_outDegree and Vertex Attribute as 1.0")
+    val outputGraph: Graph[Double, Double] = inputGraph.mapTriplets(triplet => 1.0 / triplet.srcAttr).mapVertices((id, _) => 1.0)
+    outputGraph.triplets.collect.foreach(println)
+
+    // Using Connected Components
+    println('\n'+"Graph View - Using Connected Components")
+    val ccGraph = graph.connectedComponents() // No longer contains missing field
+    ccGraph.triplets.collect.foreach(println)
+
+    // Using subgraph
+    // Remove missing vertices as well as the edges to connected to them
+    println('\n'+"Graph View - Removing Missing Vertex")
+    val validGraph = graph.subgraph(vpred = (id, attr) => attr._2 != "Missing")
+    validGraph.triplets.collect.foreach(println)
+
+    // Using mask
+    // Restrict the answer to the valid subgraph
+    println('\n'+"Graph View - Restrict the answer to the valid subgraph")
+    val validCCGraph = ccGraph.mask(validGraph)
+    validCCGraph.triplets.collect.foreach(println)
 
 
   }
